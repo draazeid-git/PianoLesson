@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Piano Teacher: Ode to Joy Expanded</title>
+  <style>
+    :root {
+      --bg: #0b0c10; --card: #1f2833; --text: #f8fafc;
+      --primary: #10b981; --secondary: #fbbf24;
+      --white-key: #ffffff; --black-key: #111;
+    }
+    body {
+      margin: 0; font-family: system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; align-items: center; padding: 10px;
+    }
+    .container { width: 100%; max-width: 900px; }
+    .card {
+      background: var(--card); padding: 15px; border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.5); border: 1px solid rgba(100,255,218,0.1);
+      margin-bottom: 10px;
+    }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .controls-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px; margin-top: 10px;
+    }
+    .control-item { background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; }
+    label { display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; margin-bottom: 3px; }
+    
+    .score-view {
+      display: flex; gap: 6px; overflow-x: auto; padding: 8px;
+      background: rgba(0,0,0,0.2); border-radius: 10px; margin: 10px 0;
+      scroll-behavior: smooth; min-height: 55px; align-items: center;
+    }
+    .note-chip {
+      min-width: 42px; height: 45px; background: #334155;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      border-radius: 6px; font-weight: bold; transition: 0.2s; border: 2px solid transparent; font-size: 13px;
+    }
+    .note-chip.next { border-color: var(--primary); transform: scale(1.05); background: #475569; }
+    .note-chip.done { opacity: 0.3; transform: scale(0.9); }
+    .note-chip.active { background: var(--secondary); color: #000; }
+
+    .piano-wrap { position: relative; padding: 8px; background: #000; border-radius: 10px; }
+    .piano { display: flex; height: 200px; position: relative; }
+    .key {
+      flex: 1; border: 1px solid #222; border-radius: 0 0 6px 6px;
+      cursor: pointer; display: flex; flex-direction: column;
+      justify-content: flex-end; align-items: center; padding-bottom: 10px;
+      position: relative; user-select: none; transition: 0.1s;
+    }
+    .white { background: var(--white-key); color: #111; z-index: 1; }
+    .black {
+      background: var(--black-key); color: #fff; height: 60%;
+      margin: 0 -3.2%; z-index: 2; flex: 0.6; border-radius: 0 0 4px 4px;
+    }
+    .key.active { background: var(--secondary) !important; }
+    .key.next-cue { border: 4px solid var(--primary) !important; z-index: 3; }
+    .key.next-cue::before {
+      content: '▼'; position: absolute; top: -30px;
+      color: var(--primary); font-size: 22px; animation: bounce 0.5s infinite alternate;
+    }
+    @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-8px); } }
+    
+    .finger-hint {
+      position: absolute; bottom: 40px; background: var(--primary);
+      color: white; width: 24px; height: 24px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;
+    }
+    
+    .btn-row { display: flex; gap: 8px; }
+    button { padding: 8px 12px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; font-size: 12px; }
+    .btn-play { background: var(--primary); color: white; }
+    .btn-auto { background: var(--secondary); color: #111; }
+    .btn-reset { background: #ef4444; color: white; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="card">
+    <div class="header-row">
+      <h3 style="margin:0">Piano Teacher</h3>
+      <div class="btn-row">
+        <button class="btn-play" onclick="startTrainer(false)">PRACTICE</button>
+        <button class="btn-auto" onclick="startTrainer(true)">AUTO-PLAY</button>
+        <button class="btn-reset" onclick="stopEverything()">RESET</button>
+      </div>
+    </div>
+    
+    <div id="hintText" style="font-size: 11px; color: #9ca3af;">Z-X-C for G3-B3 and A-S-D-F... for Middle C.</div>
+
+    <div class="controls-grid">
+      <div class="control-item">
+        <label>Song</label>
+        <select id="songSelect" style="width:100%; font-size: 12px;">
+          </select>
+      </div>
+      <div class="control-item">
+        <label>BPM <span id="bpmVal">100</span></label>
+        <input type="range" id="bpm" min="40" max="180" value="100" style="width:100%">
+      </div>
+      <div class="control-item">
+        <label>Volume <span id="volVal">45%</span></label>
+        <input type="range" id="vol" min="0" max="100" value="45" style="width:100%">
+      </div>
+      <div class="control-item">
+        <label>Metronome <span id="mvolVal">30%</span></label>
+        <input type="range" id="mvol" min="0" max="100" value="30" style="width:100%">
+      </div>
+    </div>
+    
+    <div class="score-view" id="score"></div>
+  </div>
+
+  <div class="piano-wrap">
+    <div class="piano" id="piano"></div>
+  </div>
+</div>
+
+<script>
+  // MODULAR SONG LIBRARY
+  const SONG_LIBRARY = {
+silent_night: {
+  notes: [
+    "G4","A4","G4","E4",
+    "G4","A4","G4","E4",
+    "D4","D4","B3","C4","D4",
+    "E4","E4","C4","C4",
+    "G4","A4","G4","E4",
+    "G4","A4","G4","E4",
+    "D4","D4","B3","C4","D4",
+    "E4","E4","C4","C4",
+    "G4","F4","D4","B3","C4",
+    "E4","C4","A3","G3"
+  ],
+  fingers: [
+    5,4,5,3,
+    5,4,5,3,
+    2,2,1,2,3,
+    3,3,2,2,
+    5,4,5,3,
+    5,4,5,3,
+    2,2,1,2,3,
+    3,3,2,2,
+    5,4,2,1,2,
+    3,2,1,1
+  ],
+  durations: [
+    2,1,2,4,
+    2,1,2,4,
+    2,1,1,1,4,
+    2,2,2,4,
+    2,1,2,4,
+    2,1,2,4,
+    2,1,1,1,4,
+    2,2,2,4,
+    2,1,1,1,4,
+    2,2,4,6
+  ]
+},
+  besame_mucho: {
+      notes: [
+        "A3", "D4", "E4", "F4", "D4", "D4", "A4", "G4", "F4", "E4", "D4", 
+        "G4", "F4", "E4", "D4", "A#3", "A#3", "D4", "C#4", "D4", "E4", "A3"
+      ],
+      fingers: [
+        1, 1, 2, 3, 1, 1, 5, 4, 3, 2, 1, 
+        5, 4, 3, 2, 1, 1, 3, 2, 3, 4, 1
+      ],
+      durations: [
+        1, 3, 1, 1, 2, 1, 3, 1, 1, 1, 1,
+        3, 1, 1, 1, 1, 1, 2, 1, 1, 2, 4
+      ]
+    },
+    ode_to_joy: {
+      notes: [
+        "E4","E4","F4","G4", "G4","F4","E4","D4", "C4","C4","D4","E4", "E4","D4","D4",
+        "E4","E4","F4","G4", "G4","F4","E4","D4", "C4","C4","D4","E4", "D4","C4","C4"
+      ],
+      fingers: [
+        3,3,4,5, 5,4,3,2, 1,1,2,3, 3,2,2,
+        3,3,4,5, 5,4,3,2, 1,1,2,3, 2,1,1
+      ],
+      durations: [
+        1,1,1,1, 1,1,1,1, 1,1,1,1, 1.5,0.5,2,
+        1,1,1,1, 1,1,1,1, 1,1,1,1, 1.5,0.5,2
+      ]
+    },
+    twinkle_twinkle: {
+      notes: ["C4","C4","G4","G4","A4","A4","G4", "F4","F4","E4","E4","D4","D4","C4"],
+      fingers: [1,1,5,5,5,5,5, 4,4,3,3,2,2,1],
+      durations: [1,1,1,1,1,1,2, 1,1,1,1,1,1,2]
+    },
+    frere_jacques: {
+      notes: ["C4","D4","E4","C4", "C4","D4","E4","C4", "E4","F4","G4", "E4","F4","G4", "G4","A4","G4","F4","E4","C4", "G4","A4","G4","F4","E4","C4", "C4","G3","C4", "C4","G3","C4"],
+      fingers: [1,2,3,1, 1,2,3,1, 3,4,5, 3,4,5, 5,5,4,3,2,1, 5,5,4,3,2,1, 1,5,1, 1,5,1],
+      durations: [1,1,1,1, 1,1,1,1, 1,1,2, 1,1,2, 0.5,0.5,0.5,0.5,1,1, 0.5,0.5,0.5,0.5,1,1, 1,1,2, 1,1,2]
+    },
+    jingle_bells: {
+      notes: ["E4","E4","E4", "E4","E4","E4", "E4","G4","C4","D4","E4", "F4","F4","F4","F4", "F4","E4","E4","E4","E4", "G4","G4","F4","D4","C4"],
+      fingers: [3,3,3, 3,3,3, 3,5,1,2,3, 4,4,4,4, 4,3,3,3,3, 5,5,4,2,1],
+      durations: [1,1,2, 1,1,2, 1,1,1,1,4, 1,1,1,1, 1,1,1,1,1, 1,1,1,1,4]
+    }
+  };
+
+const KEY_CONFIG = [
+    { n: "G3", b: false, k: "1" },  { n: "G#3", b: true, k: "none" },
+    { n: "A3", b: false, k: "2" },  { n: "A#3", b: true, k: "3" }, // A#3 is now '3'
+    { n: "B3", b: false, k: "4" }, 
+    { n: "C4", b: false, k: "a" },  { n: "C#4", b: true, k: "w" },
+    { n: "D4", b: false, k: "s" },  { n: "D#4", b: true, k: "e" },
+    { n: "E4", b: false, k: "d" },  { n: "F4", b: false, k: "f" },
+    { n: "F#4", b: true, k: "t" },  { n: "G4", b: false, k: "g" },
+    { n: "G#4", b: true, k: "y" },  { n: "A4", b: false, k: "h" },
+    { n: "A#4", b: true, k: "u" },  { n: "B4", b: false, k: "j" },
+    { n: "C5", b: false, k: "k" }
+  ];
+
+  let audioCtx, activeSong = null, currentIndex = -1, isAutoPlaying = false, trainerTimer = null, metroTimer = null;
+
+  function populateMenu() {
+    const select = document.getElementById('songSelect');
+    select.innerHTML = '';
+    for (const key in SONG_LIBRARY) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.innerText = key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      select.appendChild(opt);
+    }
+  }
+
+  const pianoEl = document.getElementById('piano');
+  KEY_CONFIG.forEach(key => {
+    const div = document.createElement('div');
+    div.className = `key ${key.b ? 'black' : 'white'}`;
+    div.dataset.note = key.n;
+    div.innerHTML = `<div style="pointer-events:none">${key.n}</div>` + (key.k ? `<div style="font-size:9px; opacity:0.4; pointer-events:none">${key.k.toUpperCase()}</div>` : '');
+    div.addEventListener('mousedown', () => handleInput(key.n));
+    pianoEl.appendChild(div);
+  });
+
+  function playNote(note, durSec = 0.4) {
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const freq = 440 * Math.pow(2, (KEY_CONFIG.findIndex(k => k.n === note) - 14) / 12);
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    g.gain.setValueAtTime(document.getElementById('vol').value / 100, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + durSec);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + durSec);
+    const el = document.querySelector(`[data-note="${note}"]`);
+    el.classList.add('active');
+    setTimeout(() => el.classList.remove('active'), 150);
+  }
+
+  function playMetronome() {
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const mvol = document.getElementById('mvol').value / 100;
+    if (mvol <= 0) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(1000, audioCtx.currentTime);
+    g.gain.setValueAtTime(mvol, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.05);
+  }
+
+  function startTrainer(auto) {
+    stopEverything();
+    activeSong = SONG_LIBRARY[document.getElementById('songSelect').value];
+    isAutoPlaying = auto;
+    currentIndex = 0;
+    const scoreEl = document.getElementById('score');
+    scoreEl.innerHTML = '';
+    activeSong.notes.forEach((n, i) => {
+      const div = document.createElement('div');
+      div.className = 'note-chip';
+      div.id = `chip-${i}`;
+      div.innerHTML = `<span>${n.replace(/[0-9]/g,'')}</span><small style="font-size:9px">f:${activeSong.fingers[i]}</small>`;
+      scoreEl.appendChild(div);
+    });
+    const bpm = document.getElementById('bpm').value;
+    metroTimer = setInterval(playMetronome, 60000 / bpm);
+    if (auto) autoStep(); else updateCues();
+  }
+
+  function autoStep() {
+    if (!isAutoPlaying || currentIndex >= activeSong.notes.length) {
+      if (currentIndex >= activeSong.notes.length) stopEverything();
+      return;
+    }
+    const delay = (activeSong.durations[currentIndex] * 60000) / document.getElementById('bpm').value;
+    updateCues(true);
+    playNote(activeSong.notes[currentIndex], delay/1000);
+    document.getElementById(`chip-${currentIndex}`).classList.add('active');
+    trainerTimer = setTimeout(() => {
+      document.getElementById(`chip-${currentIndex}`).classList.remove('active');
+      document.getElementById(`chip-${currentIndex}`).classList.add('done');
+      currentIndex++;
+      autoStep();
+    }, delay);
+  }
+
+  function handleInput(note) {
+    if (isAutoPlaying) return;
+    playNote(note);
+    if (activeSong && currentIndex < activeSong.notes.length) {
+      if (note === activeSong.notes[currentIndex]) {
+        document.getElementById(`chip-${currentIndex}`).classList.add('done');
+        currentIndex++;
+        if (currentIndex < activeSong.notes.length) updateCues();
+        else stopEverything();
+      }
+    }
+  }
+
+  function updateCues(isAuto = false) {
+    document.querySelectorAll('.key, .note-chip').forEach(el => {
+        el.classList.remove('next-cue', 'next');
+        const hint = el.querySelector('.finger-hint');
+        if(hint) hint.remove();
+    });
+    if (currentIndex < activeSong.notes.length) {
+      const note = activeSong.notes[currentIndex];
+      const keyEl = document.querySelector(`[data-note="${note}"]`);
+      if (!isAuto) {
+        keyEl.classList.add('next-cue');
+        const hint = document.createElement('div');
+        hint.className = 'finger-hint';
+        hint.innerText = activeSong.fingers[currentIndex];
+        keyEl.appendChild(hint);
+      }
+      const chip = document.getElementById(`chip-${currentIndex}`);
+      chip.classList.add('next');
+      chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }
+
+  function stopEverything() {
+    isAutoPlaying = false; currentIndex = -1;
+    clearTimeout(trainerTimer); clearInterval(metroTimer);
+    document.querySelectorAll('.key, .note-chip').forEach(el => el.classList.remove('next-cue', 'next', 'done', 'active'));
+    document.querySelectorAll('.finger-hint').forEach(el => el.remove());
+  }
+
+  document.getElementById('bpm').oninput = (e) => {
+    document.getElementById('bpmVal').innerText = e.target.value;
+    if (metroTimer) { clearInterval(metroTimer); metroTimer = setInterval(playMetronome, 60000 / e.target.value); }
+  };
+  window.onkeydown = (e) => {
+    const match = KEY_CONFIG.find(k => k.k === e.key.toLowerCase());
+    if(match) handleInput(match.n);
+  };
+  populateMenu();
+</script>
+</body>
+</html>
